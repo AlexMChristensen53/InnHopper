@@ -1,0 +1,16 @@
+## Interface: 16001
+## Title: Inn Hopper (Mage)
+## Notes: Pick an inn town, whisper a player there for a party invite, then teleport with the Scroll of Liminal Passage. Open with /teleport or the minimap button. Settings: Interface > AddOns > InnHopper.
+## Version: 1.0.0
+## IconTexture: Interface\AddOns\InnHopper\Textures\logo
+## X-Curse-Project-ID: 1827465
+## SavedVariables: QuickTeleportDB
+
+Data.lua
+Themes.lua
+InnHopper.lua
+Options.lua
+Setup.lua
+#@debug@
+Debug.lua
+#@end-debug@

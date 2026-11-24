@@ -1,0 +1,10 @@
+package-as: InnHopper
+
+manual-changelog:
+  filename: "Developer stuff/CHANGELOG.md"
+  markup-type: markdown
+
+ignore:
+  - "Developer stuff"
+  - Debug.lua
+  - .gitignore
