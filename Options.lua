@@ -1,4 +1,4 @@
--- InnHopper settings page (Interface > AddOns > InnHopper, /tp options).
+-- InnHopper settings page (Interface > AddOns > InnHopper, /ih options).
 local ADDON, ns = ...
 
 local backdropTemplate = BackdropTemplateMixin and "BackdropTemplate" or nil
@@ -10,38 +10,74 @@ panel:Hide()
 
 local function DB() return QuickTeleportDB end
 
+-- Layout: fixed header, scrolling body made of framed sections.
+local scroll = CreateFrame("ScrollFrame", "InnHopperOptScroll", panel, "UIPanelScrollFrameTemplate")
+scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -72)
+scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -30, 8)
+local content = CreateFrame("Frame", nil, scroll)
+content:SetSize(560, 812)
+scroll:SetScrollChild(content)
+scroll:SetScript("OnSizeChanged", function(_, w) if w and w > 0 then content:SetWidth(w) end end)
+
+local SECTION_BACKDROP = {
+  bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+  tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 },
+}
+
+-- Creates a framed section at the given offset (top is negative) with a title and divider.
+local function Section(title, top, height)
+  local f = CreateFrame("Frame", nil, content, backdropTemplate)
+  f:SetPoint("TOPLEFT", content, "TOPLEFT", 6, top)
+  f:SetPoint("TOPRIGHT", content, "TOPRIGHT", -6, top)
+  f:SetHeight(height)
+  if f.SetBackdrop then
+    f:SetBackdrop(SECTION_BACKDROP)
+    f:SetBackdropColor(0, 0, 0, 0.35)
+    f:SetBackdropBorderColor(0.6, 0.6, 0.6, 0.8)
+  end
+  local t = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+  t:SetPoint("TOPLEFT", f, "TOPLEFT", 12, -8)
+  t:SetText(title)
+  local line = f:CreateTexture(nil, "ARTWORK")
+  line:SetColorTexture(1, 1, 1, 0.12)
+  line:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -24)
+  line:SetPoint("TOPRIGHT", f, "TOPRIGHT", -10, -24)
+  line:SetHeight(1)
+  return f
+end
+
+Section("Appearance", 0, 70)
+Section("Player list", -80, 104)
+Section("Whisper message", -194, 256)
+Section("Behaviour", -460, 104)
+Section("Beacons", -574, 150)
+Section("Shortcuts", -734, 66)
+
 local refreshers = {}
 local function OnRefresh(fn) table.insert(refreshers, fn) end
 
 local function Label(text, template, x, y, parent)
-  local fs = (parent or panel):CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
-  fs:SetPoint("TOPLEFT", parent or panel, "TOPLEFT", x, y)
+  local p = parent or content
+  local fs = p:CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
+  fs:SetPoint("TOPLEFT", p, "TOPLEFT", x, y)
   fs:SetJustifyH("LEFT")
   fs:SetText(text)
   return fs
 end
 
-local function Check(name, text, x, y, tip)
-  local cb = CreateFrame("CheckButton", name, panel, "UICheckButtonTemplate")
+local function Check(name, text, x, y)
+  local cb = CreateFrame("CheckButton", name, content, "UICheckButtonTemplate")
   cb:SetSize(24, 24)
-  cb:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+  cb:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
   local t = _G[name .. "Text"]
   if t then t:SetText(text) end
-  if tip then
-    cb:SetScript("OnEnter", function()
-      GameTooltip:SetOwner(cb, "ANCHOR_RIGHT")
-      GameTooltip:SetText(tip, 1, 1, 1, 1, true)
-      GameTooltip:Show()
-    end)
-    cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
-  end
   return cb
 end
 
 local function Button(name, text, w, x, y)
-  local b = CreateFrame("Button", name, panel, "UIPanelButtonTemplate")
+  local b = CreateFrame("Button", name, content, "UIPanelButtonTemplate")
   b:SetSize(w, 24)
-  b:SetPoint("TOPLEFT", panel, "TOPLEFT", x, y)
+  b:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
   b:SetText(text)
   return b
 end
@@ -49,18 +85,23 @@ end
 ------------------------------------------------------------------
 -- Heading
 ------------------------------------------------------------------
-local head = Label("InnHopper", "GameFontNormalLarge", 16, -16)
-local ver = Label("", "GameFontHighlightSmall", 110, -20)
-local sub = Label("Teleport between inns with the Scroll of Liminal Passage (mages).", "GameFontHighlightSmall", 16, -42)
+local head = Label("InnHopper", "GameFontNormalLarge", 16, -16, panel)
+local ver = Label("", "GameFontHighlightSmall", 0, 0, panel)
+ver:ClearAllPoints()
+ver:SetPoint("BOTTOMLEFT", head, "BOTTOMRIGHT", 8, 1)
+local sub = Label("Teleport between inns with the Scroll of Liminal Passage.", "GameFontHighlightSmall", 16, -42, panel)
+local headLine = panel:CreateTexture(nil, "ARTWORK")
+headLine:SetColorTexture(1, 1, 1, 0.2)
+headLine:SetPoint("TOPLEFT", panel, "TOPLEFT", 12, -64)
+headLine:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -12, -64)
+headLine:SetHeight(1)
 
 ------------------------------------------------------------------
 -- Theme (custom dropdown)
 ------------------------------------------------------------------
-Label("Theme", "GameFontNormal", 16, -72)
-
-local dd = CreateFrame("Button", "InnHopperThemeDropdown", panel, backdropTemplate)
+local dd = CreateFrame("Button", "InnHopperThemeDropdown", content, backdropTemplate)
 dd:SetSize(220, 24)
-dd:SetPoint("TOPLEFT", panel, "TOPLEFT", 20, -92)
+dd:SetPoint("TOPLEFT", content, "TOPLEFT", 20, -36)
 dd:SetBackdrop({
   bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
   tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 },
@@ -73,7 +114,7 @@ dd.arrow:SetPoint("RIGHT", dd, "RIGHT", -8, 0)
 dd.arrow:SetText("v")
 dd:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
 
-local themeNote = Label("", "GameFontDisableSmall", 250, -97)
+local themeNote = Label("", "GameFontHighlightSmall", 250, -41)
 
 local list = CreateFrame("Frame", nil, panel, backdropTemplate)
 list:SetFrameStrata("DIALOG")
@@ -134,21 +175,20 @@ end)
 ------------------------------------------------------------------
 -- Player list info
 ------------------------------------------------------------------
-Label("Information shown in the player list", "GameFontNormal", 16, -138)
-Label("The player's name is always shown. Everything comes from the game's /who search.", "GameFontDisableSmall", 20, -156)
+Label("The player's name is always shown. Everything comes from the game's /who search.", "GameFontHighlightSmall", 20, -112)
 
 local colDefs = {
-  { "level", "Level", "Show the player's level." },
-  { "class", "Class", "Show the player's class." },
-  { "race", "Race", "Show the player's race (only available for players found with /who)." },
-  { "guild", "Guild", "Show the player's guild (only available for players found with /who)." },
-  { "zone", "City / location", "Show where the player is (zone / city)." },
+  { "level", "Level" },
+  { "class", "Class" },
+  { "race", "Race" },
+  { "guild", "Guild" },
+  { "zone", "City / location" },
 }
 local colChecks = {}
 for i, d in ipairs(colDefs) do
   local col = (i - 1) % 3
   local row = math.floor((i - 1) / 3)
-  local cb = Check("InnHopperOpt_" .. d[1], d[2], 20 + col * 150, -172 - row * 26, d[3])
+  local cb = Check("InnHopperOpt_" .. d[1], d[2], 20 + col * 150, -128 - row * 26)
   cb:SetScript("OnClick", function()
     DB().cols = DB().cols or {}
     DB().cols[d[1]] = cb:GetChecked() and true or false
@@ -160,17 +200,14 @@ end
 ------------------------------------------------------------------
 -- Whisper message
 ------------------------------------------------------------------
-Label("Whisper message", "GameFontNormal", 16, -238)
+local customCB = Check("InnHopperOpt_custom", "Use my own message", 20, -222)
 
-local customCB = Check("InnHopperOpt_custom", "Use my own message", 20, -256,
-  "Off: InnHopper sends its standard message. On: it sends the text below instead.")
-
-local box = CreateFrame("EditBox", "InnHopperOptMessage", panel, backdropTemplate)
+local box = CreateFrame("EditBox", "InnHopperOptMessage", content, backdropTemplate)
 box:SetMultiLine(true)
 box:SetAutoFocus(false)
 box:SetFontObject(ChatFontNormal)
 box:SetSize(440, 64)
-box:SetPoint("TOPLEFT", panel, "TOPLEFT", 22, -286)
+box:SetPoint("TOPLEFT", content, "TOPLEFT", 22, -252)
 box:SetTextInsets(6, 6, 6, 6)
 box:SetMaxLetters(500)
 box:SetBackdrop({
@@ -179,21 +216,19 @@ box:SetBackdrop({
 })
 box:SetBackdropColor(0, 0, 0, 0.6)
 
-local help = Label("Placeholders:  {town}  {zone}  {player}  {flavour1}  {flavour2}  {flavour3}", "GameFontHighlightSmall", 22, -384)
-local counter = Label("", "GameFontHighlightSmall", 22, -400)
-local preview = Label("", "GameFontDisableSmall", 22, -420)
+local help = Label("Placeholders:  {town}  {zone}  {player}  {flavour1}  {flavour2}  {flavour3}", "GameFontHighlightSmall", 22, -350)
+local counter = Label("", "GameFontHighlightSmall", 22, -366)
+local preview = Label("", "GameFontHighlightSmall", 22, -386)
 preview:SetWidth(440)
 preview:SetJustifyV("TOP")
 preview:SetHeight(48)
 
-local flavourCB = Check("InnHopperOpt_flavour", "Include flavour text", 250, -256,
-  "Allows the town-themed lines {flavour1}, {flavour2} and {flavour3} (each town has its own). Off: they are left out of the message, also in the standard message.")
+local flavourCB = Check("InnHopperOpt_flavour", "Include flavour text", 250, -222)
 
-local resetBtn = Button("InnHopperOptReset", "Reset to default", 120, 20, -354)
+local resetBtn = Button("InnHopperOptReset", "Reset to default", 120, 20, -320)
 
-local townBtn = Button("InnHopperOptTown", "Preview town", 170, 146, -354)
-local randCB = Check("InnHopperOpt_random", "Random flavour", 322, -353,
-  "Each whisper picks one of the town's three flavour lines at random. {flavour1}, {flavour2} and {flavour3} then all use that one pick.")
+local townBtn = Button("InnHopperOptTown", "Preview town", 170, 146, -320)
+local randCB = Check("InnHopperOpt_random", "Random flavour", 322, -319)
 
 function ns.FindTown(name)
   if not name then return nil end
@@ -321,23 +356,69 @@ end)
 ------------------------------------------------------------------
 -- Behaviour
 ------------------------------------------------------------------
-Label("Behaviour", "GameFontNormal", 16, -462)
-
-local autoCB = Check("InnHopperOpt_auto", "Auto-accept party invites and the teleport pop-up", 20, -480,
-  "Accepts the invite from a player you whispered, and the summon pop-up after you press Teleport")
+local autoCB = Check("InnHopperOpt_auto", "Auto-accept party invites and the teleport pop-up", 20, -490)
 autoCB:SetScript("OnClick", function() DB().auto = autoCB:GetChecked() and true or false end)
 
-local tipCB = Check("InnHopperOpt_tooltips", "Button tooltips", 20, -528,
-  "Show a help tooltip when the mouse is over the Back, Refresh, Teleport and Auto-accept buttons.")
-tipCB:SetScript("OnClick", function() DB().tooltips = tipCB:GetChecked() and true or false end)
+local zonesCB = Check("InnHopperOpt_zonesFirst", "Zones before towns", 20, -538)
+zonesCB:SetScript("OnClick", function()
+  DB().zonesFirst = zonesCB:GetChecked() and true or false
+  if ns.RefreshMain then ns.RefreshMain() end
+end)
 
-local miniCB = Check("InnHopperOpt_minimap", "Show minimap button", 20, -504)
+local miniCB = Check("InnHopperOpt_minimap", "Show minimap button", 20, -514)
 miniCB:SetScript("OnClick", function()
   DB().minimap = miniCB:GetChecked() and true or false
   if ns.ApplyMinimap then ns.ApplyMinimap() end
 end)
 
-local openBtn = Button("InnHopperOptOpen", "Open InnHopper", 130, 20, -558)
+------------------------------------------------------------------
+-- Beacon (right of Behaviour)
+------------------------------------------------------------------
+local beaconNote = Label("Mark yourself as a beacon for other InnHoppers, letting them know they can teleport to you", "GameFontHighlightSmall", 20, -600)
+beaconNote:SetWidth(520)
+beaconNote:SetJustifyV("TOP")
+
+local beaconChecks = {}
+local aiCB, confirmCB, shownCB
+local function RefreshBeacon()
+  local mode = ns.GetBeaconMode and ns.GetBeaconMode() or "off"
+  for id, cb in pairs(beaconChecks) do cb:SetChecked(id == mode) end
+  if aiCB then
+    aiCB:SetChecked(not ns.GetBeaconAutoInvite or ns.GetBeaconAutoInvite())
+    aiCB:SetEnabled(mode ~= "off")
+  end
+  if confirmCB then confirmCB:SetChecked(ns.GetBeaconConfirm()) end
+  if shownCB then shownCB:SetChecked(ns.GetBeaconButtonShown()) end
+end
+
+for i, d in ipairs({ { "off", "Off" }, { "on", "On" } }) do
+  local cb = Check("InnHopperOpt_beacon" .. d[1], d[2], 20 + (i - 1) * 70, -626)
+  cb:SetScript("OnClick", function()
+    if ns.RequestBeaconMode then ns.RequestBeaconMode(d[1], RefreshBeacon) end
+    RefreshBeacon()
+  end)
+  beaconChecks[d[1]] = cb
+end
+
+aiCB = Check("InnHopperOpt_beaconinvite", "Auto-invite", 20, -650)
+aiCB:SetScript("OnClick", function()
+  if ns.SetBeaconAutoInvite then ns.SetBeaconAutoInvite(aiCB:GetChecked()) end
+  RefreshBeacon()
+end)
+
+confirmCB = Check("InnHopperOpt_beaconconfirm", "Confirm before switching on", 20, -674)
+confirmCB:SetScript("OnClick", function()
+  ns.SetBeaconConfirm(confirmCB:GetChecked())
+end)
+
+shownCB = Check("InnHopperOpt_beaconshown", "Show beacon button", 20, -698)
+shownCB:SetScript("OnClick", function()
+  ns.SetBeaconButtonShown(shownCB:GetChecked())
+end)
+
+ns.OnBeaconChange(RefreshBeacon)
+
+local openBtn = Button("InnHopperOptOpen", "Open InnHopper", 130, 20, -766)
 openBtn:SetScript("OnClick", function()
   if ns.frame and not ns.frame:IsShown() then ns.frame:Show() end
 end)
@@ -376,7 +457,7 @@ local function CreateOpenMacro()
   end
   -- #showtooltip displays the scroll icon and count on the action bar button
   local scroll = (DB() and DB().scroll) or "Scroll of Liminal Passage"
-  local body = "#showtooltip " .. scroll .. "\n/tp"
+  local body = "#showtooltip " .. scroll .. "\n/ih"
   local ok = pcall(CreateMacro, MACRO_NAME, "Spell_Arcane_Blink", body, false)
   if not ok or not FindGeneralMacro() then
     ok = pcall(CreateMacro, MACRO_NAME, 134400, body, false) -- question-mark icon fallback
@@ -384,20 +465,14 @@ local function CreateOpenMacro()
   if FindGeneralMacro() then
     Say("Macro created. Type |cffffff00/macro|r, open the General Macros tab, and drag |cffffff00" .. MACRO_NAME .. "|r to your action bar. Right-click the action bar button to give it a keybind.")
   else
-    Say("|cffff5555Could not create the macro.|r You can make one yourself in /macro with the text: #showtooltip Scroll of Liminal Passage, then /tp on the next line")
+    Say("|cffff5555Could not create the macro.|r You can make one yourself in /macro with the text: #showtooltip Scroll of Liminal Passage, then /ih on the next line")
   end
 end
 
 ns.CreateMacro = CreateOpenMacro
 
-local macroBtn = Button("InnHopperOptMacro", "Create macro", 130, 160, -558)
+local macroBtn = Button("InnHopperOptMacro", "Create macro", 130, 160, -766)
 macroBtn:SetScript("OnClick", CreateOpenMacro)
-macroBtn:SetScript("OnEnter", function()
-  GameTooltip:SetOwner(macroBtn, "ANCHOR_RIGHT")
-  GameTooltip:SetText("Adds a General macro named InnHopper that opens this window (/tp) and shows your Scroll of Liminal Passage count on the button. Drag it from /macro to your action bar and give it a keybind if you like.", 1, 1, 1, 1, true)
-  GameTooltip:Show()
-end)
-macroBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
 ------------------------------------------------------------------
 -- Load saved values when the page is shown
@@ -414,7 +489,8 @@ local function LoadAll()
   box:SetText(db.whisperText or ns.WHISPER_DEFAULT)
   autoCB:SetChecked(db.auto ~= false)
   miniCB:SetChecked(db.minimap ~= false)
-  tipCB:SetChecked(db.tooltips and true or false)
+  zonesCB:SetChecked(db.zonesFirst == true)
+  RefreshBeacon()
   UpdatePreview()
 end
 panel:SetScript("OnShow", function(...)

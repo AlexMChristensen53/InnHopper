@@ -1,4 +1,4 @@
--- InnHopper setup guide (first start and /tp setup).
+-- InnHopper setup guide (first start and /ih setup).
 -- Shows the main window with sample players next to a step panel.
 local ADDON, ns = ...
 
@@ -66,22 +66,8 @@ steps[1] = {
   end,
 }
 
--- 2. Button tooltips
+-- 2. Whisper message
 steps[2] = {
-  title = "Button tooltips",
-  text = "A small help text can appear when the mouse is over the Back, Refresh and Teleport buttons.",
-  build = function(p)
-    local cb = Check(p, "Show button tooltips", 4, 0)
-    cb:SetScript("OnClick", function() DB().tooltips = cb:GetChecked() and true or false end)
-    local btn = Button(p, "Show an example", 150, 6, -44)
-    btn:SetScript("OnClick", function() if ns.PreviewTip then ns.PreviewTip() end end)
-    Note(p, "The example works even when tooltips are off. With the tick box on, the same text appears whenever you hover those buttons in the InnHopper window.", 4, -80, 340)
-    return function() cb:SetChecked(DB().tooltips and true or false) end
-  end,
-}
-
--- 3. Whisper message
-steps[3] = {
   height = 450,
   title = "Whisper message",
   text = "This is what InnHopper whispers to a player to ask for a party invite.",
@@ -144,7 +130,7 @@ steps[3] = {
     end)
     box:SetScript("OnEscapePressed", function() box:ClearFocus() end)
     box:SetScript("OnEnterPressed", function() box:ClearFocus() end)
-    more = Note(p, "More whisper options (flavour text, random flavour) are in the settings: /tp options", 4, -246, 340, "GameFontDisableSmall")
+    more = Note(p, "More whisper options (flavour text, random flavour) are in the settings: /ih options", 4, -246, 340, "GameFontDisableSmall")
     return function()
       box:SetText(DB().whisperText or ns.WHISPER_DEFAULT)
       Update()
@@ -152,8 +138,8 @@ steps[3] = {
   end,
 }
 
--- 4. Auto-accept
-steps[4] = {
+-- 3. Auto-accept
+steps[3] = {
   title = "Auto-accept",
   text = "InnHopper can accept the party invite from the player you whispered, and the teleport pop-up after you press Teleport, so you don't have to click them yourself.",
   build = function(p)
@@ -167,19 +153,51 @@ steps[4] = {
   end,
 }
 
+-- 4. Beacon mode
+steps[4] = {
+  height = 350,
+  title = "Beacon mode",
+  text = "Mark yourself as a beacon for other InnHoppers, letting them know they can teleport to you.",
+  build = function(p)
+    local defs = {
+      { "off", "Off", "Your character never answers requests. Recommended if you are unsure." },
+      { "on", "On", "Answers requests whenever you are resting in an inn or a city. Players who ask to join are invited to your party automatically until it is full." },
+    }
+    local checks = {}
+    local function Refresh()
+      local mode = ns.GetBeaconMode()
+      for id, cb in pairs(checks) do cb:SetChecked(id == mode) end
+    end
+    ns.OnBeaconChange(Refresh)
+    local y = 0
+    for _, d in ipairs(defs) do
+      local cb = Check(p, d[2], 4, y)
+      cb:SetScript("OnClick", function()
+        if ns.RequestBeaconMode then ns.RequestBeaconMode(d[1], Refresh) end
+        Refresh()
+      end)
+      checks[d[1]] = cb
+      local note = Note(p, d[3], 34, y - 24, 308)
+      y = y - 26 - math.ceil(#d[3] / 50) * 12 - 8
+    end
+    Note(p, "Switching on asks for confirmation. You can also switch with the InnHopper button on your screen: grey is off, coloured is on.", 4, y - 4, 340, "GameFontDisableSmall")
+    return Refresh
+  end,
+}
+
 -- 5. Macro
 steps[5] = {
   title = "Action bar macro",
-  text = "InnHopper can add a macro to your General macro list that opens the window with /tp and shows how many scrolls you have left. Drag it to your action bar and give it a keybind if you like.",
+  text = "InnHopper can add a macro to your General macro list that opens the window with /ih and shows how many scrolls you have left. Drag it to your action bar and give it a keybind if you like.",
   build = function(p)
     local icon = p:CreateTexture(nil, "ARTWORK")
     icon:SetSize(40, 40)
     icon:SetPoint("TOPLEFT", p, "TOPLEFT", 6, 0)
     icon:SetTexture("Interface\\Icons\\Spell_Arcane_Blink")
-    Note(p, "InnHopper\n|cff888888/tp|r", 54, -6, 200, "GameFontNormal")
+    Note(p, "InnHopper\n|cff888888/ih|r", 54, -6, 200, "GameFontNormal")
     local btn = Button(p, "Create macro", 140, 6, -58)
     btn:SetScript("OnClick", function() if ns.CreateMacro then ns.CreateMacro() end end)
-    Note(p, "Not interested? Just press Next. You can create it later in the settings (/tp options).", 4, -96, 340)
+    Note(p, "Not interested? Just press Next. You can create it later in the settings (/ih options).", 4, -96, 340)
     return function() end
   end,
 }
@@ -230,9 +248,9 @@ local function Finish(skipped)
   }
   StaticPopup_Show("INNHOPPER_SETUP_DONE",
     "|cffffd200InnHopper " .. (skipped and "setup skipped" or "setup finished") .. "|r\n\n" ..
-    "Open the window any time with |cffffff00/tp|r or the minimap button.\n\n" ..
-    "Run this guide again with |cffffff00/tp setup|r.\n\n" ..
-    "All settings: |cffffff00/tp options|r, or Interface -> AddOns -> InnHopper.")
+    "Open the window any time with |cffffff00/ih|r or the minimap button.\n\n" ..
+    "Run this guide again with |cffffff00/ih setup|r.\n\n" ..
+    "All settings: |cffffff00/ih options|r, or Interface -> AddOns -> InnHopper.")
 end
 
 local function ShowStep(n)
@@ -256,7 +274,8 @@ end
 local function Build()
   wiz = CreateFrame("Frame", "InnHopperSetup", UIParent, backdropTemplate)
   wiz:SetSize(W, H)
-  wiz:SetFrameStrata("DIALOG")
+  wiz:SetFrameStrata("HIGH")
+  wiz:SetToplevel(true)
   wiz:SetClampedToScreen(true)
   wiz:SetMovable(true)
   wiz:EnableMouse(true)
@@ -312,7 +331,7 @@ end
 function ns.StartSetup()
   if not wiz then Build() end
   if InCombatLockdown() then
-    DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffInnHopper:|r Setup will start when combat ends. Or type |cffffff00/tp setup|r later.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cff66ccffInnHopper:|r Setup will start when combat ends. Or type |cffffff00/ih setup|r later.")
     local f = CreateFrame("Frame")
     f:RegisterEvent("PLAYER_REGEN_ENABLED")
     f:SetScript("OnEvent", function(self) self:UnregisterAllEvents(); ns.StartSetup() end)

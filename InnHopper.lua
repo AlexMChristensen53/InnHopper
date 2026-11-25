@@ -5,8 +5,11 @@ local ADDON, ns = ...
 
 QuickTeleportDB = QuickTeleportDB or {}
 
-local QT = { cache = {}, whispered = {} }
+local QT = { cache = {}, whispered = {}, requested = {} }
 ns.QT = QT
+QT.beacons = {}
+QT.tab = "beacons"
+QT.counts = { beacons = 0, players = 0 }
 
 -- Debug logging; active only when Debug.lua is installed and enabled.
 local function Dbg(text)
@@ -14,7 +17,8 @@ local function Dbg(text)
 end
 local ROWS = 10
 local ROW_H = 20
-local DEFAULT_SCROLL = "Scroll of Liminal Passage" -- override with /tp scroll <name>
+local TAB_H = 26
+local DEFAULT_SCROLL = "Scroll of Liminal Passage" -- override with /ih scroll <name>
 local WHO_COOLDOWN = 3
 
 local WHISPER_BASE = "Hello there, fellow traveller! May I use your kind soul to teleport to you? If so please invite me once you are inside"
@@ -31,7 +35,6 @@ ns.DEFAULTS = {
   whisperText = ns.WHISPER_DEFAULT,
   auto = true,
   minimap = true,
-  tooltips = false,
 }
 
 local DEST = ns.DEST
@@ -87,17 +90,6 @@ local function SafeFont(obj, path, size)
   if not ok then obj:SetFont(STANDARD_TEXT_FONT, size, "") end
 end
 
-local function SetTip(frame, text)
-  frame.tipText = text
-  frame:SetScript("OnEnter", function()
-    if not QuickTeleportDB.tooltips then return end
-    GameTooltip:SetOwner(frame, "ANCHOR_TOP")
-    GameTooltip:SetText(text, 1, 1, 1, 1, true)
-    GameTooltip:Show()
-  end)
-  frame:SetScript("OnLeave", function() GameTooltip:Hide() end)
-end
-
 local function GetDestList()
   local faction = UnitFactionGroup("player")
   local list = {}
@@ -106,7 +98,14 @@ local function GetDestList()
     for i = 1, #src do table.insert(list, src[i]) end
   end
   for i = 1, #DEST.Neutral do table.insert(list, DEST.Neutral[i]) end
-  table.sort(list, function(a, b) return string.lower(a[1]) < string.lower(b[1]) end)
+  local zonesFirst = QuickTeleportDB and QuickTeleportDB.zonesFirst == true
+  table.sort(list, function(a, b)
+    if zonesFirst then
+      local za, zb = string.lower(a[2]), string.lower(b[2])
+      if za ~= zb then return za < zb end
+    end
+    return string.lower(a[1]) < string.lower(b[1])
+  end)
   return list
 end
 
@@ -243,7 +242,8 @@ local f = CreateFrame("Frame", "InnHopperFrame", UIParent, backdropTemplate)
 ns.frame = f
 f:SetSize(330, ROWS * ROW_H + 192)
 f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-f:SetFrameStrata("DIALOG")
+f:SetFrameStrata("HIGH")
+f:SetToplevel(true)
 f:SetMovable(true)
 f:EnableMouse(true)
 f:EnableMouseWheel(true)
@@ -390,11 +390,9 @@ end
 
 local backBtn = MakeButton("InnHopperBack", 80, 24, "< Back")
 backBtn:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 20, 14)
-SetTip(backBtn, "Go back and choose a different town.")
 
 local whoBtn = MakeButton("InnHopperWho", 80, 24, "Refresh")
 whoBtn:SetPoint("LEFT", backBtn, "RIGHT", 6, 0)
-SetTip(whoBtn, "Search again for players in this town.")
 
 -- Secure button: item use goes through a macro.
 local useBtn = MakeButton("InnHopperUse", 100, 24, "Teleport", "SecureActionButtonTemplate")
@@ -402,7 +400,6 @@ useBtn:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -20, 14)
 useBtn:RegisterForClicks("AnyUp", "AnyDown")
 useBtn:SetAttribute("type", "macro")
 ns.useBtn = useBtn
-SetTip(useBtn, "Uses the Scroll of Liminal Passage to teleport to the player you whispered. Accept their party invite first - this button is greyed out until you are in a party.")
 
 
 local function IsAuto()
@@ -411,7 +408,6 @@ end
 
 local autoCB = MakeCheck("InnHopperAuto", "Auto-accept")
 autoCB:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 16, 42)
-SetTip(autoCB, "Automatically accept the party invite from a player you whispered, and the teleport pop-up after you press Teleport")
 autoCB:SetScript("OnClick", function()
   QuickTeleportDB.auto = autoCB:GetChecked() and true or false
 end)
@@ -470,10 +466,60 @@ useBtn:HookScript("PreClick", function()
   useBtn:SetAttribute("macrotext", macro)
   Dbg("Teleport pressed, macro: " .. string.gsub(macro, "\n", " | "))
   QT.teleportTime = GetTime()
+  QT.glowDone = true
 end)
+
+-- Marks the Teleport button while the scroll can be used right now by pulsing its highlight.
+local glowOn = false
+
+local function SetGlow(on)
+  if on == glowOn then return end
+  glowOn = on
+  local tex = useBtn:GetHighlightTexture()
+  if on then
+    useBtn:LockHighlight()
+    if tex then
+      if not tex.pulse then
+        local group = tex:CreateAnimationGroup()
+        group:SetLooping("BOUNCE")
+        local alpha = group:CreateAnimation("Alpha")
+        if alpha.SetFromAlpha then
+          alpha:SetFromAlpha(1)
+          alpha:SetToAlpha(0.2)
+        else
+          alpha:SetChange(-0.8)
+        end
+        alpha:SetDuration(0.7)
+        tex.pulse = group
+      end
+      tex.pulse:Play()
+    end
+  else
+    if tex and tex.pulse then tex.pulse:Stop() end
+    useBtn:UnlockHighlight()
+  end
+end
 
 local rows = {}
 local Refresh
+
+local tabBeacons = MakeButton("InnHopperTabBeacons", 142, 22, "Beacons")
+tabBeacons:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -92)
+tabBeacons:Hide()
+tabBeacons:SetScript("OnClick", function()
+  QT.tab = "beacons"
+  offset = 0
+  Refresh()
+end)
+
+local tabPlayers = MakeButton("InnHopperTabPlayers", 142, 22, "Players")
+tabPlayers:SetPoint("LEFT", tabBeacons, "RIGHT", 6, 0)
+tabPlayers:Hide()
+tabPlayers:SetScript("OnClick", function()
+  QT.tab = "players"
+  offset = 0
+  Refresh()
+end)
 
 local sb = CreateFrame("Slider", "InnHopperScroll", f)
 sb:SetOrientation("VERTICAL")
@@ -722,25 +768,42 @@ end
 ------------------------------------------------------------------
 -- List contents
 ------------------------------------------------------------------
+-- True when beacons are shown: real (non-demo) lists only.
+local function BeaconsOn()
+  return not QT.demo and ns.BeaconScan ~= nil
+end
+
+-- Matches when the text starts with the query.
+local function StartsWith(query, text)
+  return string.find(string.lower(text or ""), query, 1, true) == 1
+end
+
 local function BuildItems()
   local q = string.lower(eb:GetText() or "")
   items = {}
   if stage == 1 then
     local list = GetDestList()
+    local field = QuickTeleportDB.zonesFirst == true and 2 or 1
     for i = 1, #list do
       local d = list[i]
-      if q == "" or string.find(string.lower(d[1] .. " " .. d[2]), q, 1, true) then
+      if q == "" or StartsWith(q, d[field]) then
         table.insert(items, d)
       end
     end
   else
     local list = CollectPlayers(currentDest, IsWide())
+    local beaconsOn = BeaconsOn()
+    local nb, np = 0, 0
     for i = 1, #list do
       local p = list[i]
-      if q == "" or string.find(string.lower(p.short), q, 1, true) then
+      local isBeacon = beaconsOn and QT.beacons[string.lower(p.short)] and true or false
+      if isBeacon then nb = nb + 1 else np = np + 1 end
+      local onTab = not beaconsOn or (QT.tab == "beacons") == isBeacon
+      if onTab and (q == "" or StartsWith(q, p.short)) then
         table.insert(items, p)
       end
     end
+    QT.counts.beacons, QT.counts.players = nb, np
   end
 end
 
@@ -766,7 +829,12 @@ local function RowText(p)
   local name = (ch ~= "" and (ch .. p.short .. "|r") or p.short)
   local s = name
   if #parts > 0 then s = s .. "  " .. muted .. table.concat(parts, " - ") .. "|r" end
-  if QT.whispered[string.lower(p.short)] then s = s .. "  |cffffff00(whispered)|r" end
+  local key = string.lower(p.short)
+  if QT.whispered[key] then
+    s = s .. "  |cffffff00(whispered)|r"
+  elseif QT.requested[key] then
+    s = s .. "  |cffffff00(requested)|r"
+  end
   return s
 end
 
@@ -782,7 +850,7 @@ local function GetInstruction()
     return "You are in a party!\nPress |cff00ff00Teleport|r to use your scroll."
   end
   if QT.pending then
-    return "Whisper sent! Accept their party invite,\nthen press |cff00ff00Teleport|r"
+    return (QT.pendingRequest and "Request sent!" or "Whisper sent!") .. " Accept their party invite,\nthen press |cff00ff00Teleport|r"
   end
   return "Click a player's name to ask them for a party invite."
 end
@@ -795,6 +863,14 @@ local function GetStatus(total)
   local c = QT.cache[CacheKey(currentDest, IsWide())]
   if QT.searching then
     return "Searching for players in " .. currentDest[1] .. "..."
+  end
+  if BeaconsOn() and QT.tab == "beacons" and (QT.counts.beacons + QT.counts.players) > 0 then
+    if total > 0 then
+      return total .. " beacon(s) in " .. currentDest[1]
+    end
+    if QT.beaconScanning then return "Checking for beacons..." end
+    if (eb:GetText() or "") ~= "" then return "No beacons match your search." end
+    return "No beacons found. Open the Players tab to ask someone directly."
   end
   if total > 0 then
     local s = total .. " player(s) in " .. currentDest[1]
@@ -843,13 +919,31 @@ local function UpdateUseCount()
   elseif GetItemCount then n = GetItemCount(name) or 0 end
   local label = useBtn.label
   label:SetText("Teleport (" .. n .. ")")
+  if not IsInGroup() then QT.glowDone = false end
+  SetGlow(QT.pulseReady == true and stage == 2 and IsInGroup() and IsResting() and n > 0 and not QT.glowDone)
   local size = T.sizes.text
   SafeFont(label, T.fonts.text, size)
   local w = label:GetStringWidth() or 0
   if w > 88 then SafeFont(label, T.fonts.text, math.max(8, math.floor(size * 88 / w))) end
 end
 
+-- Moves the list down and grows the window while the tab row is visible.
+local function LayoutList(shift)
+  if QT.layoutShift == shift then return end
+  if InCombatLockdown() then return end
+  QT.layoutShift = shift
+  f:SetHeight(ROWS * ROW_H + 192 + shift)
+  sb:ClearAllPoints()
+  sb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -94 - shift)
+  for i = 1, ROWS do
+    rows[i]:ClearAllPoints()
+    rows[i]:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -94 - shift - (i - 1) * ROW_H)
+  end
+end
+
 local function RefreshInner()
+  local showTabs = stage == 2 and BeaconsOn()
+  LayoutList(showTabs and TAB_H or 0)
   BuildItems()
   local T = QT.theme or ns.THEMES.vanilla
   local total = #items
@@ -870,7 +964,9 @@ local function RefreshInner()
     if it then
       row.item = it
       if stage == 1 then
-        row.text:SetText(it[1] .. "  " .. Hex(T.colors.muted) .. it[2] .. "|r")
+        local a, b = it[1], it[2]
+        if QuickTeleportDB.zonesFirst == true then a, b = b, a end
+        row.text:SetText(a .. "  " .. Hex(T.colors.muted) .. b .. "|r")
       else
         row.text:SetText(RowText(it))
       end
@@ -883,7 +979,7 @@ local function RefreshInner()
 
   if stage == 1 then
     title:SetText("InnHopper")
-    hint:SetText("Search town or zone...")
+    hint:SetText(QuickTeleportDB.zonesFirst == true and "Search zone..." or "Search town...")
   else
     title:SetText(currentDest[1])
     hint:SetText("Search player name...")
@@ -892,6 +988,20 @@ local function RefreshInner()
   if (eb:GetText() or "") == "" then hint:Show() else hint:Hide() end
   instr:SetText(GetInstruction())
   status:SetText(GetStatus(total))
+
+  tabBeacons:SetShown(showTabs)
+  tabPlayers:SetShown(showTabs)
+  if showTabs then
+    tabBeacons.label:SetText("Beacons (" .. QT.counts.beacons .. ")")
+    tabPlayers.label:SetText("Players (" .. QT.counts.players .. ")")
+    if QT.tab == "beacons" then
+      tabBeacons:LockHighlight()
+      tabPlayers:UnlockHighlight()
+    else
+      tabPlayers:LockHighlight()
+      tabBeacons:UnlockHighlight()
+    end
+  end
 
   autoCB:SetShown(stage == 2)
   autoCB:SetChecked(IsAuto())
@@ -987,16 +1097,45 @@ local function StartWho()
   Refresh()
 end
 
+-- Queries the players of the current list for beacons. Results arrive one by one.
+local function StartBeaconScan()
+  if not BeaconsOn() or stage ~= 2 or not currentDest then return end
+  local list = CollectPlayers(currentDest, IsWide())
+  local names = {}
+  for i = 1, #list do names[i] = list[i].name end
+  local dest = currentDest
+  QT.beaconScanning = true
+  local started = ns.BeaconScan(names, function(name, found, auto)
+    if found and currentDest == dest then
+      QT.beacons[ShortLower(name)] = { auto = auto == true }
+      if f:IsShown() then Refresh() end
+    end
+  end, function(stats)
+    if currentDest == dest then
+      QT.beaconScanning = false
+      QT.beaconSkipped = stats.skipped
+      if f:IsShown() then Refresh() end
+    end
+  end)
+  if not started then QT.beaconScanning = false end
+end
+
 local function EnterStage2(dest)
   stage = 2
   currentDest = dest
   offset = 0
+  QT.beacons = {}
+  QT.beaconSkipped = 0
+  QT.beaconScanning = false
+  QT.tab = "beacons"
+  if ns.BeaconScanCancel then ns.BeaconScanCancel() end
   local ok, err = pcall(SendSearch)
   if not ok then
     QT.searching = false
     Msg("|cffff5555Search problem:|r " .. tostring(err))
   end
   eb:SetText("")
+  if QT.tooSoon then StartBeaconScan() end
   Refresh()
 end
 
@@ -1006,6 +1145,8 @@ local function EnterStage1()
   currentDest = nil
   offset = 0
   QT.searching = false
+  QT.beaconScanning = false
+  if ns.BeaconScanCancel then ns.BeaconScanCancel() end
   eb:SetText("")
   Refresh()
 end
@@ -1014,15 +1155,42 @@ local function WhisperPlayer(p)
   SendChat(ns.BuildWhisper(currentDest, p.short), "WHISPER", nil, p.name)
   QT.whispered[string.lower(p.short)] = GetTime()
   QT.pending = currentDest
+  QT.pendingRequest = false
+  QT.awaitBeacon = nil
   QT.lastTarget = p.name
   UpdateUseMacro()
-  Msg("Whispered |cffffff00" .. p.short .. "|r. Accept their party invite, then press Teleport")
+  Refresh()
+end
+
+-- Asks a beacon for a party invite with a hidden request instead of a whisper.
+local function RequestBeacon(p)
+  if not ns.BeaconJoin(p.name) then
+    WhisperPlayer(p)
+    return
+  end
+  local key = string.lower(p.short)
+  local stamp = GetTime()
+  QT.requested[key] = stamp
+  QT.pending = currentDest
+  QT.pendingRequest = true
+  QT.awaitBeacon = stamp
+  QT.lastTarget = p.name
+  UpdateUseMacro()
   Refresh()
 end
 
 local function Activate(it)
   if QT.demo then return end
-  if stage == 1 then EnterStage2(it) else WhisperPlayer(it) end
+  if stage == 1 then
+    EnterStage2(it)
+    return
+  end
+  local entry = QT.beacons[string.lower(it.short)]
+  if type(entry) == "table" and entry.auto then
+    RequestBeacon(it)
+  else
+    WhisperPlayer(it)
+  end
 end
 
 for i = 1, ROWS do
@@ -1049,7 +1217,13 @@ for i = 1, ROWS do
       if #line > 0 then GameTooltip:AddLine(table.concat(line, " "), 0.8, 0.8, 0.8) end
       if p.area and p.area ~= "" then GameTooltip:AddLine(p.area, 0.6, 0.6, 0.6) end
       if p.guild and p.guild ~= "" then GameTooltip:AddLine("<" .. p.guild .. ">", 0.4, 1, 0.4) end
-      GameTooltip:AddLine("Click to whisper and ask for a party invite", 1, 0.82, 0)
+      if QT.beacons[string.lower(p.short)] then GameTooltip:AddLine("Beacon", 0.4, 0.8, 1) end
+      local entry = QT.beacons[string.lower(p.short)]
+      if type(entry) == "table" and entry.auto then
+        GameTooltip:AddLine("Click to ask this beacon for a party invite", 1, 0.82, 0)
+      else
+        GameTooltip:AddLine("Click to whisper and ask for a party invite", 1, 0.82, 0)
+      end
       GameTooltip:Show()
     end
   end)
@@ -1076,6 +1250,11 @@ end)
 
 backBtn:SetScript("OnClick", function() EnterStage1() end)
 whoBtn:SetScript("OnClick", function() StartWho(true) end)
+
+f:HookScript("OnHide", function()
+  QT.beaconScanning = false
+  if ns.BeaconScanCancel then ns.BeaconScanCancel() end
+end)
 
 f:SetScript("OnShow", function()
   if C_GuildInfo and C_GuildInfo.GuildRoster then C_GuildInfo.GuildRoster() end
@@ -1110,21 +1289,6 @@ function ns.SetDemo(on)
   Refresh()
 end
 ns.SetEscCloses = SetEscCloses
--- Cycles the example tooltips of the Back, Refresh and Teleport buttons (setup guide).
-local tipIdx = 0
-function ns.PreviewTip()
-  local list = { backBtn, whoBtn, useBtn }
-  tipIdx = tipIdx % #list + 1
-  local b = list[tipIdx]
-  if not (b and b:IsShown() and b.tipText) then return end
-  GameTooltip:SetOwner(b, "ANCHOR_TOP")
-  GameTooltip:SetText(b.tipText, 1, 1, 1, 1, true)
-  GameTooltip:Show()
-  local mine = GetTime()
-  QT.tipShown = mine
-  C_Timer.After(5, function() if QT.tipShown == mine then GameTooltip:Hide() end end)
-end
-
 ns.ApplyTheme("vanilla") -- replaced at PLAYER_LOGIN
 
 ------------------------------------------------------------------
@@ -1215,9 +1379,11 @@ PlaceButton()
 ------------------------------------------------------------------
 -- Slash commands + events
 ------------------------------------------------------------------
-SLASH_INNHOPPER1 = "/teleport"
+SLASH_INNHOPPER1 = "/ih"
 SLASH_INNHOPPER2 = "/innhopper"
+-- Legacy aliases kept for macros created by earlier versions.
 SLASH_INNHOPPER3 = "/tp"
+SLASH_INNHOPPER4 = "/teleport"
 SlashCmdList["INNHOPPER"] = function(msg)
   msg = msg or ""
   local name = string.match(msg, "^[Ss][Cc][Rr][Oo][Ll][Ll]%s+(.+)")
@@ -1229,6 +1395,14 @@ SlashCmdList["INNHOPPER"] = function(msg)
     if ns.OpenOptions then ns.MoveAside(); ns.OpenOptions() end
   elseif string.lower(msg) == "setup" then
     if ns.StartSetup then ns.StartSetup() end
+  elseif string.lower(msg) == "help" then
+    Msg("commands")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih|r  open or close the window")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih options|r  open the settings")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih setup|r  run the setup guide")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih scroll <item>|r  set the scroll item")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih version|r  show the version")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/innhopper|r  works the same as /ih")
   elseif string.lower(msg) == "version" then
     Msg("version " .. (GetMeta and GetMeta(ADDON, "Version") or "unknown"))
   elseif ns.Command and ns.Command(string.lower(msg)) then
@@ -1286,12 +1460,31 @@ ev:SetScript("OnEvent", function(_, name, arg1)
       C_Timer.After(0.3, function()
         if QT.whoId == id then RestoreWhoWindows() end
       end)
-      if f:IsShown() then Refresh() end
+      if f:IsShown() then
+        StartBeaconScan()
+        Refresh()
+      end
     end
   elseif name == "GUILD_ROSTER_UPDATE" or name == "FRIENDLIST_UPDATE" then
     if f:IsShown() and stage == 2 then Refresh() end
   elseif name == "GROUP_ROSTER_UPDATE" then
-    if IsInGroup() then QT.pending = nil end
+    if IsInGroup() then
+      -- The Teleport pulse is reserved for a party joined through a beacon request.
+      if QT.awaitBeacon and (GetTime() - QT.awaitBeacon) < 120 and QT.lastTarget then
+        local want = ShortLower(QT.lastTarget)
+        for i = 1, GetNumSubgroupMembers() do
+          local u = "party" .. i
+          if UnitExists(u) and ShortLower(UnitName(u) or "") == want then
+            QT.pulseReady = true
+            QT.awaitBeacon = nil
+            break
+          end
+        end
+      end
+      QT.pending = nil
+    else
+      QT.pulseReady = false
+    end
     UpdateUseMacro()
     if f:IsShown() then Refresh() end
   elseif name == "BAG_UPDATE_DELAYED" then
@@ -1302,13 +1495,13 @@ ev:SetScript("OnEvent", function(_, name, arg1)
     Dbg("party invite from " .. tostring(arg1))
     -- Accept only invites from players whispered within the last 5 minutes.
     if IsAuto() and arg1 then
-      local t = QT.whispered[ShortLower(arg1)]
-      if t and (GetTime() - t) < 300 then
+      local k = ShortLower(arg1)
+      local t = math.max(QT.whispered[k] or 0, QT.requested[k] or 0)
+      if t > 0 and (GetTime() - t) < 300 then
         local accept = AcceptGroup or (C_PartyInfo and C_PartyInfo.AcceptInvite)
         if accept then
           accept()
           StaticPopup_Hide("PARTY_INVITE")
-          Msg("Accepted the party invite from |cffffff00" .. Ambiguate(arg1, "short") .. "|r.")
         end
       end
     end
@@ -1325,7 +1518,6 @@ ev:SetScript("OnEvent", function(_, name, arg1)
       if confirm then
         confirm()
         QT.teleportTime = nil
-        Msg("Accepted the teleport.")
       end
     end
   end
