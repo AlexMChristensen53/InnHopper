@@ -88,7 +88,7 @@ steps[2] = {
       tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 },
     })
     box:SetBackdropColor(0, 0, 0, 0.6)
-    local help = Note(p, "You can use {town} {zone} {player} {flavour1} {flavour2} {flavour3}", 6, -120, 336, "GameFontDisableSmall")
+    local help = Note(p, "You can use {town} {zone} {player} {flavour1} {flavour2} {flavour3}", 6, -120, 336, "GameFontHighlightSmall")
     help:SetHeight(26)
     local preview = Note(p, "", 6, -140, 336)
     preview:SetHeight(70)
@@ -130,7 +130,7 @@ steps[2] = {
     end)
     box:SetScript("OnEscapePressed", function() box:ClearFocus() end)
     box:SetScript("OnEnterPressed", function() box:ClearFocus() end)
-    more = Note(p, "More whisper options (flavour text, random flavour) are in the settings: /ih options", 4, -246, 340, "GameFontDisableSmall")
+    more = Note(p, "More whisper options (flavour text, random flavour) are in the settings: /ih options", 4, -246, 340, "GameFontHighlightSmall")
     return function()
       box:SetText(DB().whisperText or ns.WHISPER_DEFAULT)
       Update()
@@ -138,30 +138,35 @@ steps[2] = {
   end,
 }
 
--- 3. Auto-accept
+-- 3. After the invite
 steps[3] = {
-  title = "Auto-accept",
-  text = "InnHopper can accept the party invite from the player you whispered, and the teleport pop-up after you press Teleport, so you don't have to click them yourself.",
+  title = "After the invite",
+  text = "Choose what InnHopper does after you have asked for an invite.",
   build = function(p)
     local cb = Check(p, "Auto-accept party invites and the teleport pop-up", 4, 0)
     cb:SetScript("OnClick", function()
       DB().auto = cb:GetChecked() and true or false
       if ns.RefreshMain then ns.RefreshMain() end
     end)
-    Note(p, "The same tick box is at the bottom of the InnHopper window. It only reacts to players you whispered yourself.", 4, -40, 340)
-    return function() cb:SetChecked(DB().auto ~= false) end
+    local leave = Check(p, "Leave the party after teleporting", 4, -30)
+    leave:SetScript("OnClick", function()
+      DB().leaveAfter = leave:GetChecked() and true or false
+    end)
+    return function()
+      cb:SetChecked(DB().auto ~= false)
+      leave:SetChecked(DB().leaveAfter ~= false)
+    end
   end,
 }
 
 -- 4. Beacon mode
 steps[4] = {
-  height = 350,
   title = "Beacon mode",
-  text = "Mark yourself as a beacon for other InnHoppers, letting them know they can teleport to you.",
+  text = "Mark yourself as a beacon for other InnHoppers. Beacons automatically detect when you are inside a major city or inn, marking you available for teleportation for mages across Azeroth.",
   build = function(p)
     local defs = {
-      { "off", "Off", "Your character never answers requests. Recommended if you are unsure." },
-      { "on", "On", "Answers requests whenever you are resting in an inn or a city. Players who ask to join are invited to your party automatically until it is full." },
+      { "on", "On" },
+      { "off", "Off" },
     }
     local checks = {}
     local function Refresh()
@@ -177,10 +182,9 @@ steps[4] = {
         Refresh()
       end)
       checks[d[1]] = cb
-      local note = Note(p, d[3], 34, y - 24, 308)
-      y = y - 26 - math.ceil(#d[3] / 50) * 12 - 8
+      y = y - 28
     end
-    Note(p, "Switching on asks for confirmation. You can also switch with the InnHopper button on your screen: grey is off, coloured is on.", 4, y - 4, 340, "GameFontDisableSmall")
+    Note(p, "Right-click the InnHopper button on your screen to switch beacon mode: grey is off, coloured is on.", 4, y - 8, 340, "GameFontHighlightSmall")
     return Refresh
   end,
 }
@@ -188,7 +192,7 @@ steps[4] = {
 -- 5. Macro
 steps[5] = {
   title = "Action bar macro",
-  text = "InnHopper can add a macro to your General macro list that opens the window with /ih and shows how many scrolls you have left. Drag it to your action bar and give it a keybind if you like.",
+  text = "Add an InnHopper macro to your General macros, ready to drag to your action bar.",
   build = function(p)
     local icon = p:CreateTexture(nil, "ARTWORK")
     icon:SetSize(40, 40)
@@ -197,7 +201,6 @@ steps[5] = {
     Note(p, "InnHopper\n|cff888888/ih|r", 54, -6, 200, "GameFontNormal")
     local btn = Button(p, "Create macro", 140, 6, -58)
     btn:SetScript("OnClick", function() if ns.CreateMacro then ns.CreateMacro() end end)
-    Note(p, "Not interested? Just press Next. You can create it later in the settings (/ih options).", 4, -96, 340)
     return function() end
   end,
 }
@@ -205,7 +208,7 @@ steps[5] = {
 -- 6. Theme
 steps[6] = {
   title = "Theme",
-  text = "Pick a look for the InnHopper window. It changes right away, so you can see it on the left.",
+  text = "Pick a look for the InnHopper window.",
   build = function(p)
     local buttons = {}
     for i, id in ipairs(ns.THEME_ORDER) do

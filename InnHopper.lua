@@ -16,8 +16,11 @@ local function Dbg(text)
   if ns.Dbg then ns.Dbg(text) end
 end
 local ROWS = 10
+local ROWS1 = 14      -- rows of the town list, which has no controls below it
+local ROWS_MAX = 14
 local ROW_H = 20
 local TAB_H = 26
+local HDR_H = 22
 local DEFAULT_SCROLL = "Scroll of Liminal Passage" -- override with /ih scroll <name>
 local WHO_COOLDOWN = 3
 
@@ -90,6 +93,34 @@ local function SafeFont(obj, path, size)
   if not ok then obj:SetFont(STANDARD_TEXT_FONT, size, "") end
 end
 
+-- Town list sorting: "town", "zone" or "beacons". The beacon column exists only with the overview.
+local function BeaconColumn()
+  return ns.OverviewOn and ns.OverviewOn() or false
+end
+
+local function SortKey()
+  local db = QuickTeleportDB
+  local key = db and db.sortKey
+  if key == "beacons" and not BeaconColumn() then key = nil end
+  if key == "town" or key == "zone" or key == "beacons" then return key end
+  return (db and db.zonesFirst == true) and "zone" or "town"
+end
+
+local function SortDesc()
+  local db = QuickTeleportDB
+  if db and db.sortDesc ~= nil then return db.sortDesc == true end
+  return SortKey() == "beacons"
+end
+
+local function SetSort(key)
+  if SortKey() == key then
+    QuickTeleportDB.sortDesc = not SortDesc()
+  else
+    QuickTeleportDB.sortKey = key
+    QuickTeleportDB.sortDesc = key == "beacons"
+  end
+end
+
 local function GetDestList()
   local faction = UnitFactionGroup("player")
   local list = {}
@@ -98,11 +129,26 @@ local function GetDestList()
     for i = 1, #src do table.insert(list, src[i]) end
   end
   for i = 1, #DEST.Neutral do table.insert(list, DEST.Neutral[i]) end
-  local zonesFirst = QuickTeleportDB and QuickTeleportDB.zonesFirst == true
+  local key, desc = SortKey(), SortDesc()
   table.sort(list, function(a, b)
-    if zonesFirst then
+    if key == "beacons" then
+      local ca, cb = ns.OverviewCount(a), ns.OverviewCount(b)
+      if ca ~= cb then
+        if desc then return ca > cb end
+        return ca < cb
+      end
+    elseif key == "zone" then
       local za, zb = string.lower(a[2]), string.lower(b[2])
-      if za ~= zb then return za < zb end
+      if za ~= zb then
+        if desc then return za > zb end
+        return za < zb
+      end
+    else
+      local ta, tb = string.lower(a[1]), string.lower(b[1])
+      if ta ~= tb then
+        if desc then return ta > tb end
+        return ta < tb
+      end
     end
     return string.lower(a[1]) < string.lower(b[1])
   end)
@@ -240,7 +286,8 @@ ns.GetState = function() return stage, currentDest and currentDest[1] end
 
 local f = CreateFrame("Frame", "InnHopperFrame", UIParent, backdropTemplate)
 ns.frame = f
-f:SetSize(330, ROWS * ROW_H + 192)
+-- Fixed height: the window keeps its size between the town list and the player list.
+f:SetSize(370, ROWS * ROW_H + 192 + TAB_H)
 f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
 f:SetFrameStrata("HIGH")
 f:SetToplevel(true)
@@ -441,11 +488,23 @@ local function UpdateUseMacro()
   useBtn:SetAttribute("macrotext", (IsInGroup() and not QT.demo) and BuildMacro() or "")
 end
 
+-- Warnings appear above the screen centre, below the default error text at the top.
+local warnFrame = CreateFrame("MessageFrame", "InnHopperWarning", UIParent)
+warnFrame:SetSize(640, 40)
+warnFrame:SetPoint("CENTER", UIParent, "CENTER", 0, 150)
+warnFrame:SetFrameStrata("DIALOG")
+warnFrame:SetInsertMode("TOP")
+warnFrame:SetFading(true)
+warnFrame:SetTimeVisible(3)
+warnFrame:SetFadeDuration(1)
+warnFrame:SetFontObject(ErrorFont or GameFontNormalLarge)
+warnFrame:EnableMouse(false)
+
 local function Warn(text)
   local now = GetTime()
   if QT.lastWarn and (now - QT.lastWarn) < 0.6 then return end -- click fires on key down and up
   QT.lastWarn = now
-  UIErrorsFrame:AddMessage(text, 1, 0.1, 0.1, 1)
+  warnFrame:AddMessage(text, 1, 0.1, 0.1, 1)
   Msg("|cffff5555" .. text .. "|r")
 end
 
@@ -503,7 +562,30 @@ end
 local rows = {}
 local Refresh
 
-local tabBeacons = MakeButton("InnHopperTabBeacons", 142, 22, "Beacons")
+-- Column headers of the town list; clicking one sorts by that column.
+local headers = {}
+local function MakeHeader(key, label, x, w, right)
+  local b = CreateFrame("Button", nil, f)
+  b:SetSize(w, 18)
+  b:SetPoint("TOPLEFT", f, "TOPLEFT", x, -92)
+  b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight")
+  b.text = b:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+  b.text:SetPoint(right and "RIGHT" or "LEFT", b, right and "RIGHT" or "LEFT", right and -6 or 0, 0)
+  b.key, b.label = key, label
+  b:SetScript("OnClick", function()
+    SetSort(key)
+    offset = 0
+    Refresh()
+  end)
+  b:Hide()
+  table.insert(headers, b)
+  return b
+end
+MakeHeader("town", "Town", 24, 138)
+MakeHeader("zone", "Zone", 168, 104)
+MakeHeader("beacons", "Beacons", 280, 50, true)
+
+local tabBeacons = MakeButton("InnHopperTabBeacons", 162, 22, "Beacons")
 tabBeacons:SetPoint("TOPLEFT", f, "TOPLEFT", 20, -92)
 tabBeacons:Hide()
 tabBeacons:SetScript("OnClick", function()
@@ -512,8 +594,8 @@ tabBeacons:SetScript("OnClick", function()
   Refresh()
 end)
 
-local tabPlayers = MakeButton("InnHopperTabPlayers", 142, 22, "Players")
-tabPlayers:SetPoint("LEFT", tabBeacons, "RIGHT", 6, 0)
+local tabPlayers = MakeButton("InnHopperTabPlayers", 162, 22, "Players")
+tabPlayers:SetPoint("TOPRIGHT", f, "TOPRIGHT", -20, -92)
 tabPlayers:Hide()
 tabPlayers:SetScript("OnClick", function()
   QT.tab = "players"
@@ -750,6 +832,8 @@ local function DoApplyTheme(T)
       ht:SetBlendMode(rh.tex == "Interface\\QuestFrame\\UI-QuestTitleHighlight" and "ADD" or "BLEND")
       SafeFont(row.text, fn.text, sz.text)
       row.text:SetTextColor(col.text[1], col.text[2], col.text[3])
+      SafeFont(row.zone, fn.text, sz.text)
+      SafeFont(row.count, fn.text, sz.text)
     end
   end)
 
@@ -783,7 +867,7 @@ local function BuildItems()
   items = {}
   if stage == 1 then
     local list = GetDestList()
-    local field = QuickTeleportDB.zonesFirst == true and 2 or 1
+    local field = SortKey() == "zone" and 2 or 1
     for i = 1, #list do
       local d = list[i]
       if q == "" or StartsWith(q, d[field]) then
@@ -873,9 +957,7 @@ local function GetStatus(total)
     return "No beacons found. Open the Players tab to ask someone directly."
   end
   if total > 0 then
-    local s = total .. " player(s) in " .. currentDest[1]
-    if total > ROWS then s = s .. " - scroll the list with your mouse wheel" end
-    return s
+    return total .. " player(s) in " .. currentDest[1]
   end
   if QT.timedOut then
     return "The server is slow to answer. Press Refresh to try again."
@@ -932,10 +1014,9 @@ local function LayoutList(shift)
   if QT.layoutShift == shift then return end
   if InCombatLockdown() then return end
   QT.layoutShift = shift
-  f:SetHeight(ROWS * ROW_H + 192 + shift)
   sb:ClearAllPoints()
   sb:SetPoint("TOPRIGHT", f, "TOPRIGHT", -16, -94 - shift)
-  for i = 1, ROWS do
+  for i = 1, ROWS_MAX do
     rows[i]:ClearAllPoints()
     rows[i]:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -94 - shift - (i - 1) * ROW_H)
   end
@@ -943,11 +1024,14 @@ end
 
 local function RefreshInner()
   local showTabs = stage == 2 and BeaconsOn()
-  LayoutList(showTabs and TAB_H or 0)
+  local showHeader = stage == 1 and not QT.demo
+  LayoutList(showHeader and HDR_H or (showTabs and TAB_H or 0))
   BuildItems()
   local T = QT.theme or ns.THEMES.vanilla
   local total = #items
-  local maxOffset = total - ROWS
+  local rowsVisible = showHeader and ROWS1 or ROWS
+  sb:SetHeight(rowsVisible * ROW_H)
+  local maxOffset = total - rowsVisible
   if maxOffset < 0 then maxOffset = 0 end
   if offset > maxOffset then offset = maxOffset end
   if offset < 0 then offset = 0 end
@@ -958,17 +1042,30 @@ local function RefreshInner()
   QT.sbBusy = false
   sb:SetShown(maxOffset > 0)
 
-  for i = 1, ROWS do
-    local it = items[i + offset]
+  local beaconCol = stage == 1 and BeaconColumn()
+  for i = 1, ROWS_MAX do
+    local it = (i <= rowsVisible) and items[i + offset] or nil
     local row = rows[i]
     if it then
       row.item = it
       if stage == 1 then
-        local a, b = it[1], it[2]
-        if QuickTeleportDB.zonesFirst == true then a, b = b, a end
-        row.text:SetText(a .. "  " .. Hex(T.colors.muted) .. b .. "|r")
+        row.text:SetWidth(138)
+        row.text:SetText(it[1])
+        row.zone:ClearAllPoints()
+        row.zone:SetPoint("LEFT", row, "LEFT", 150, 0)
+        row.zone:SetWidth(beaconCol and 104 or 160)
+        row.zone:SetText(Hex(T.colors.muted) .. it[2] .. "|r")
+        row.zone:Show()
+        if beaconCol then
+          local n = ns.OverviewCount(it)
+          row.count:SetText(n > 0 and ("|cffffff00" .. (n > 50 and "50+" or n) .. "|r") or (Hex(T.colors.muted) .. "-|r"))
+        end
+        row.count:SetShown(beaconCol)
       else
+        row.text:SetWidth(306)
         row.text:SetText(RowText(it))
+        row.zone:Hide()
+        row.count:Hide()
       end
       row:Show()
     else
@@ -979,7 +1076,7 @@ local function RefreshInner()
 
   if stage == 1 then
     title:SetText("InnHopper")
-    hint:SetText(QuickTeleportDB.zonesFirst == true and "Search zone..." or "Search town...")
+    hint:SetText(SortKey() == "zone" and "Search zone..." or "Search town...")
   else
     title:SetText(currentDest[1])
     hint:SetText("Search player name...")
@@ -988,6 +1085,16 @@ local function RefreshInner()
   if (eb:GetText() or "") == "" then hint:Show() else hint:Hide() end
   instr:SetText(GetInstruction())
   status:SetText(GetStatus(total))
+
+  local sortKey, sortDesc = SortKey(), SortDesc()
+  for _, h in ipairs(headers) do
+    local visible = showHeader and (h.key ~= "beacons" or BeaconColumn())
+    h:SetShown(visible)
+    if visible then
+      h.text:SetText(h.label .. (sortKey == h.key and (sortDesc and " v" or " ^") or ""))
+    end
+  end
+  headers[2]:SetWidth(BeaconColumn() and 104 or 160)
 
   tabBeacons:SetShown(showTabs)
   tabPlayers:SetShown(showTabs)
@@ -1023,6 +1130,7 @@ Refresh = function()
   end
 end
 ns.RefreshMain = function() Refresh() end
+ns.GetStage = function() return stage end
 
 -- Suppresses the default who window by unregistering other WHO_LIST_UPDATE listeners during a search.
 local function SuppressWhoWindows()
@@ -1193,15 +1301,24 @@ local function Activate(it)
   end
 end
 
-for i = 1, ROWS do
+for i = 1, ROWS_MAX do
   local row = CreateFrame("Button", "InnHopperRow" .. i, f)
-  row:SetSize(276, ROW_H)
+  row:SetSize(316, ROW_H)
   row:SetPoint("TOPLEFT", f, "TOPLEFT", 18, -94 - (i - 1) * ROW_H)
   row.text = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
   row.text:SetPoint("LEFT", row, "LEFT", 6, 0)
-  row.text:SetWidth(266)
+  row.text:SetWidth(306)
   row.text:SetJustifyH("LEFT")
   if row.text.SetWordWrap then row.text:SetWordWrap(false) end
+  row.zone = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  row.zone:SetJustifyH("LEFT")
+  if row.zone.SetWordWrap then row.zone:SetWordWrap(false) end
+  row.zone:Hide()
+  row.count = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
+  row.count:SetPoint("RIGHT", row, "RIGHT", -6, 0)
+  row.count:SetWidth(44)
+  row.count:SetJustifyH("RIGHT")
+  row.count:Hide()
   row:SetScript("OnClick", function()
     if row.item then Activate(row.item) end
   end)
@@ -1401,8 +1518,11 @@ SlashCmdList["INNHOPPER"] = function(msg)
     DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih options|r  open the settings")
     DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih setup|r  run the setup guide")
     DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih scroll <item>|r  set the scroll item")
+    DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih new|r  show what's new")
     DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/ih version|r  show the version")
     DEFAULT_CHAT_FRAME:AddMessage("  |cffffff00/innhopper|r  works the same as /ih")
+  elseif string.lower(msg) == "new" then
+    if ns.ShowWhatsNew then ns.ShowWhatsNew(true) end
   elseif string.lower(msg) == "version" then
     Msg("version " .. (GetMeta and GetMeta(ADDON, "Version") or "unknown"))
   elseif ns.Command and ns.Command(string.lower(msg)) then
@@ -1424,6 +1544,7 @@ ev:RegisterEvent("PLAYER_UPDATE_RESTING")
 ev:RegisterEvent("PARTY_INVITE_REQUEST")
 ev:RegisterEvent("BAG_UPDATE_DELAYED")
 ev:RegisterEvent("CONFIRM_SUMMON")
+ev:RegisterEvent("PLAYER_ENTERING_WORLD")
 ev:SetScript("OnEvent", function(_, name, arg1)
   if name == "PLAYER_LOGIN" then
     InitDB()
@@ -1505,8 +1626,28 @@ ev:SetScript("OnEvent", function(_, name, arg1)
         end
       end
     end
+  elseif name == "PLAYER_ENTERING_WORLD" then
+    -- Leaves the party once the teleport has landed (opt-in).
+    local armed = QT.leaveArmed
+    QT.leaveArmed = nil
+    if armed and (GetTime() - armed) < 120 and QuickTeleportDB.leaveAfter ~= false then
+      C_Timer.After(2, function()
+        if IsInGroup() then
+          local leave = (C_PartyInfo and C_PartyInfo.LeaveParty) or LeaveParty
+          if leave then leave() end
+        end
+      end)
+    end
   elseif name == "CONFIRM_SUMMON" then
     Dbg("summon pop-up received")
+    -- Arms leaving the party for the arrival that follows a summon requested with Teleport.
+    if QuickTeleportDB.leaveAfter ~= false and QT.teleportTime and (GetTime() - QT.teleportTime) < 120 then
+      local getSummoner = (C_SummonInfo and C_SummonInfo.GetSummonConfirmSummoner) or GetSummonConfirmSummoner
+      local summoner = getSummoner and getSummoner() or nil
+      if not (summoner and QT.lastTarget and ShortLower(summoner) ~= ShortLower(QT.lastTarget)) then
+        QT.leaveArmed = GetTime()
+      end
+    end
     -- Accept only summons following a Teleport press within the last 2 minutes.
     if IsAuto() and QT.teleportTime and (GetTime() - QT.teleportTime) < 120 then
       local getSummoner = (C_SummonInfo and C_SummonInfo.GetSummonConfirmSummoner) or GetSummonConfirmSummoner

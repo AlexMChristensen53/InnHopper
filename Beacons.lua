@@ -166,6 +166,7 @@ end
 StaticPopupDialogs["INNHOPPER_BEACON"] = {
   text = "Beacon mode answers requests from other InnHopper players. Unless you choose otherwise, "
     .. "players who ask to join are invited to your party automatically until it is full.\n\n"
+    .. "Your zone is shared with InnHopper players who use the beacon overview.\n\n"
     .. "This can be changed at any time.",
   button1 = "Enable",
   button2 = CANCEL,
@@ -484,7 +485,7 @@ button:SetFrameStrata("MEDIUM")
 button:SetClampedToScreen(true)
 button:SetMovable(true)
 button:EnableMouse(true)
-button:RegisterForClicks("LeftButtonUp")
+button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 button:RegisterForDrag("LeftButton")
 button:SetPoint("CENTER", UIParent, "CENTER", 0, -200)
 
@@ -507,14 +508,19 @@ function ns.BeaconButtonUpdate()
   if on then face:SetVertexColor(1, 1, 1, 1) else face:SetVertexColor(0.6, 0.6, 0.6, 0.9) end
 end
 
-button:SetScript("OnClick", function()
-  ns.RequestBeaconMode(ns.GetBeaconMode() == "on" and "off" or "on")
+button:SetScript("OnClick", function(_, mouseButton)
+  if mouseButton == "RightButton" then
+    ns.RequestBeaconMode(ns.GetBeaconMode() == "on" and "off" or "on")
+  elseif ns.Toggle then
+    ns.Toggle()
+  end
 end)
 button:SetScript("OnEnter", function(self)
   GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
   GameTooltip:AddLine("InnHopper beacon", 1, 0.82, 0)
-  GameTooltip:AddLine("Left click: switch on / off", 1, 1, 1)
-  GameTooltip:AddLine("Shift + left click: move", 1, 1, 1)
+  GameTooltip:AddLine("Left click: open InnHopper", 1, 1, 1)
+  GameTooltip:AddLine("Right click: beacon on / off", 1, 1, 1)
+  GameTooltip:AddLine("Shift + drag: move", 1, 1, 1)
   GameTooltip:Show()
 end)
 button:SetScript("OnLeave", function() GameTooltip:Hide() end)

@@ -70,6 +70,15 @@ function ns.Command(msg)
     end
     return true
 
+  elseif msg == "overview" then
+    for _, line in ipairs(ns.OverviewState()) do Print(line) end
+    return true
+
+  elseif msg == "overviewquery" then
+    ns.OverviewQuery()
+    Print("query sent")
+    return true
+
   elseif string.match(msg, "^beaconautoinvite") then
     local arg = string.match(msg, "^beaconautoinvite%s+(%a+)$")
     if arg == "on" or arg == "off" then ns.SetBeaconAutoInvite(arg == "on") end

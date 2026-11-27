@@ -15,7 +15,7 @@ local scroll = CreateFrame("ScrollFrame", "InnHopperOptScroll", panel, "UIPanelS
 scroll:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -72)
 scroll:SetPoint("BOTTOMRIGHT", panel, "BOTTOMRIGHT", -30, 8)
 local content = CreateFrame("Frame", nil, scroll)
-content:SetSize(560, 812)
+content:SetSize(560, 824)
 scroll:SetScrollChild(content)
 scroll:SetScript("OnSizeChanged", function(_, w) if w and w > 0 then content:SetWidth(w) end end)
 
@@ -50,8 +50,8 @@ Section("Appearance", 0, 70)
 Section("Player list", -80, 104)
 Section("Whisper message", -194, 256)
 Section("Behaviour", -460, 104)
-Section("Beacons", -574, 150)
-Section("Shortcuts", -734, 66)
+Section("Beacons", -574, 162)
+Section("Shortcuts", -746, 66)
 
 local refreshers = {}
 local function OnRefresh(fn) table.insert(refreshers, fn) end
@@ -61,6 +61,7 @@ local function Label(text, template, x, y, parent)
   local fs = p:CreateFontString(nil, "ARTWORK", template or "GameFontNormal")
   fs:SetPoint("TOPLEFT", p, "TOPLEFT", x, y)
   fs:SetJustifyH("LEFT")
+  if template == "GameFontHighlightSmall" then fs:SetTextColor(1, 1, 1) end
   fs:SetText(text)
   return fs
 end
@@ -74,11 +75,32 @@ local function Check(name, text, x, y)
   return cb
 end
 
+-- Buttons use the art and text colour of the selected theme, like the main window.
+local panelButtons = {}
+
+local function StyleButton(b)
+  local T = ns.THEMES[DB() and DB().theme] or ns.THEMES.vanilla
+  local bt = T.button
+  local c = bt.coords
+  b:SetNormalTexture(bt.up); b:SetPushedTexture(bt.down); b:SetHighlightTexture(bt.hi)
+  for _, t in ipairs({ b:GetNormalTexture(), b:GetPushedTexture(), b:GetHighlightTexture() }) do
+    if c then t:SetTexCoord(c[1], c[2], c[3], c[4]) else t:SetTexCoord(0, 1, 0, 1) end
+  end
+  b:GetHighlightTexture():SetBlendMode("ADD")
+end
+
 local function Button(name, text, w, x, y)
-  local b = CreateFrame("Button", name, content, "UIPanelButtonTemplate")
+  local b = CreateFrame("Button", name, content)
   b:SetSize(w, 24)
   b:SetPoint("TOPLEFT", content, "TOPLEFT", x, y)
+  b.label = b:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  b.label:SetPoint("CENTER", b, "CENTER", 0, 0)
+  b:SetFontString(b.label)
   b:SetText(text)
+  b:HookScript("OnMouseDown", function() b.label:SetPoint("CENTER", b, "CENTER", 1, -1) end)
+  b:HookScript("OnMouseUp", function() b.label:SetPoint("CENTER", b, "CENTER", 0, 0) end)
+  table.insert(panelButtons, b)
+  StyleButton(b)
   return b
 end
 
@@ -359,10 +381,9 @@ end)
 local autoCB = Check("InnHopperOpt_auto", "Auto-accept party invites and the teleport pop-up", 20, -490)
 autoCB:SetScript("OnClick", function() DB().auto = autoCB:GetChecked() and true or false end)
 
-local zonesCB = Check("InnHopperOpt_zonesFirst", "Zones before towns", 20, -538)
-zonesCB:SetScript("OnClick", function()
-  DB().zonesFirst = zonesCB:GetChecked() and true or false
-  if ns.RefreshMain then ns.RefreshMain() end
+local leaveCB = Check("InnHopperOpt_leaveAfter", "Leave the party after teleporting", 20, -538)
+leaveCB:SetScript("OnClick", function()
+  DB().leaveAfter = leaveCB:GetChecked() and true or false
 end)
 
 local miniCB = Check("InnHopperOpt_minimap", "Show minimap button", 20, -514)
@@ -374,8 +395,8 @@ end)
 ------------------------------------------------------------------
 -- Beacon (right of Behaviour)
 ------------------------------------------------------------------
-local beaconNote = Label("Mark yourself as a beacon for other InnHoppers, letting them know they can teleport to you", "GameFontHighlightSmall", 20, -600)
-beaconNote:SetWidth(520)
+local beaconNote = Label("Mark yourself as a beacon for other InnHoppers. Beacons automatically detect when you are inside a major city or inn, marking you available for teleportation for mages across Azeroth.", "GameFontHighlightSmall", 20, -600)
+beaconNote:SetWidth(540)
 beaconNote:SetJustifyV("TOP")
 
 local beaconChecks = {}
@@ -391,8 +412,8 @@ local function RefreshBeacon()
   if shownCB then shownCB:SetChecked(ns.GetBeaconButtonShown()) end
 end
 
-for i, d in ipairs({ { "off", "Off" }, { "on", "On" } }) do
-  local cb = Check("InnHopperOpt_beacon" .. d[1], d[2], 20 + (i - 1) * 70, -626)
+for i, d in ipairs({ { "on", "On" }, { "off", "Off" } }) do
+  local cb = Check("InnHopperOpt_beacon" .. d[1], d[2], 20 + (i - 1) * 70, -640)
   cb:SetScript("OnClick", function()
     if ns.RequestBeaconMode then ns.RequestBeaconMode(d[1], RefreshBeacon) end
     RefreshBeacon()
@@ -400,25 +421,25 @@ for i, d in ipairs({ { "off", "Off" }, { "on", "On" } }) do
   beaconChecks[d[1]] = cb
 end
 
-aiCB = Check("InnHopperOpt_beaconinvite", "Auto-invite", 20, -650)
+aiCB = Check("InnHopperOpt_beaconinvite", "Auto-invite", 20, -664)
 aiCB:SetScript("OnClick", function()
   if ns.SetBeaconAutoInvite then ns.SetBeaconAutoInvite(aiCB:GetChecked()) end
   RefreshBeacon()
 end)
 
-confirmCB = Check("InnHopperOpt_beaconconfirm", "Confirm before switching on", 20, -674)
+confirmCB = Check("InnHopperOpt_beaconconfirm", "Confirm before switching on", 20, -688)
 confirmCB:SetScript("OnClick", function()
   ns.SetBeaconConfirm(confirmCB:GetChecked())
 end)
 
-shownCB = Check("InnHopperOpt_beaconshown", "Show beacon button", 20, -698)
+shownCB = Check("InnHopperOpt_beaconshown", "Show beacon button", 20, -712)
 shownCB:SetScript("OnClick", function()
   ns.SetBeaconButtonShown(shownCB:GetChecked())
 end)
 
 ns.OnBeaconChange(RefreshBeacon)
 
-local openBtn = Button("InnHopperOptOpen", "Open InnHopper", 130, 20, -766)
+local openBtn = Button("InnHopperOptOpen", "Open InnHopper", 130, 20, -778)
 openBtn:SetScript("OnClick", function()
   if ns.frame and not ns.frame:IsShown() then ns.frame:Show() end
 end)
@@ -471,7 +492,7 @@ end
 
 ns.CreateMacro = CreateOpenMacro
 
-local macroBtn = Button("InnHopperOptMacro", "Create macro", 130, 160, -766)
+local macroBtn = Button("InnHopperOptMacro", "Create macro", 130, 160, -778)
 macroBtn:SetScript("OnClick", CreateOpenMacro)
 
 ------------------------------------------------------------------
@@ -482,6 +503,7 @@ local function LoadAll()
   local db = DB()
   ver:SetText("v" .. (GetMeta and GetMeta(ADDON, "Version") or "?"))
   UpdateThemeText()
+  for _, b in ipairs(panelButtons) do StyleButton(b) end
   for key, cb in pairs(colChecks) do cb:SetChecked(db.cols and db.cols[key] and true or false) end
   customCB:SetChecked(db.whisperCustom and true or false)
   flavourCB:SetChecked(db.flavour ~= false)
@@ -489,7 +511,7 @@ local function LoadAll()
   box:SetText(db.whisperText or ns.WHISPER_DEFAULT)
   autoCB:SetChecked(db.auto ~= false)
   miniCB:SetChecked(db.minimap ~= false)
-  zonesCB:SetChecked(db.zonesFirst == true)
+  leaveCB:SetChecked(db.leaveAfter ~= false)
   RefreshBeacon()
   UpdatePreview()
 end

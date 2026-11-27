@@ -2,6 +2,24 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com). Versioning follows [Semantic Versioning](https://semver.org).
 
+## [1.2.0]
+### Added
+- Beacon overview. The town list shows a Beacons column with the number of available beacons per town. Beacons announce themselves in a hidden channel, immediately when they become available and withdraw when they stop being available; viewers query every 10 seconds while the window is open. Always on; there is no setting for it.
+- Sortable town list: click Town, Zone or Beacons above the list. The sort key and direction are saved.
+- "Leave the party after teleporting" (on by default) in the settings and the setup guide.
+- "What's new" window, shown once per version; `/ih new` reopens it.
+- Beacon button: left click opens InnHopper, right click switches beacon mode, Shift + drag moves it.
+
+### Changed
+- Town list uses the full window height (13 rows) and the tabs span the full width.
+- Warnings are shown lower on the screen in a separate message frame.
+- Settings buttons use the button style of the selected theme.
+- Beacon options list "On" before "Off". Setup guide texts shortened: explanations under tick boxes, macro and theme intros removed.
+- The window is wider to fit the new columns.
+
+### Removed
+- Setting "Zones before towns"; the sort is chosen with the column headers.
+
 ## [1.1.0]
 ### Added
 - Beacons (opt-in). A player with beacon mode on answers hidden requests from other InnHopper users and invites them to a party automatically until it is full. A beacon answers only while resting in an inn or city (not in a sleeping bag) and while its party has a free slot.
