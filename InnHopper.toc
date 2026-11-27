@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: InnHopper
 ## Notes: Pick an inn town, whisper a player there for a party invite, then teleport with the Scroll of Liminal Passage. Open with /ih or the minimap button. Settings: Interface > AddOns > InnHopper.
-## Version: 1.2.0
+## Version: 1.2.1
 ## IconTexture: Interface\AddOns\InnHopper\Textures\logo
 ## X-Curse-Project-ID: 1827465
 ## SavedVariables: QuickTeleportDB

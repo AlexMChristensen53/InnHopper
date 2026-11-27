@@ -5,7 +5,8 @@
 --
 -- Protocol (hidden addon messages in a temporary channel):
 --   "L"                    a viewer asks which beacons are available.
---   "B<auto>|<zone>|<sub>" an available beacon answers after a random delay, and
+--   "B<auto>|<zone>|<sub>|<level>|<class file>"
+--                          an available beacon answers after a random delay, and
 --                          announces itself at once when it becomes available.
 --   "X"                    a beacon withdraws when it stops being available.
 -- Every InnHopper user takes part: the channel is joined after login.
@@ -156,22 +157,47 @@ local function BuildLookup()
   end
 end
 
--- Assigns an announcement to the town named by its sub-zone or zone, else to every
--- town in its zone.
+-- Calls fn(town) for every town an announcement belongs to: the town named by its
+-- sub-zone or zone, else every town in its zone.
+local function EachTown(e, fn)
+  if byName[e.sub] then
+    fn(e.sub)
+    if e.zone ~= e.sub and byName[e.zone] then fn(e.zone) end
+  elseif byName[e.zone] then
+    fn(e.zone)
+  elseif byZone[e.zone] then
+    for _, town in ipairs(byZone[e.zone]) do fn(town) end
+  end
+end
+
+local function Bump(town)
+  counts[town] = (counts[town] or 0) + 1
+end
+
 local function Rebuild()
   if not byName then BuildLookup() end
   counts = {}
+  for _, e in pairs(store) do EachTown(e, Bump) end
+  countsDirty = false
+end
+
+-- Available beacons in a town, independent of any /who result.
+function ns.OverviewBeacons(dest)
+  Prune()
+  if not byName then BuildLookup() end
+  local out, target, hit = {}, dest[1], false
+  local function Hit(town) if town == target then hit = true end end
   for _, e in pairs(store) do
-    if byName[e.sub] then
-      counts[e.sub] = (counts[e.sub] or 0) + 1
-      if e.zone ~= e.sub and byName[e.zone] then counts[e.zone] = (counts[e.zone] or 0) + 1 end
-    elseif byName[e.zone] then
-      counts[e.zone] = (counts[e.zone] or 0) + 1
-    elseif byZone[e.zone] then
-      for _, town in ipairs(byZone[e.zone]) do counts[town] = (counts[town] or 0) + 1 end
+    hit = false
+    EachTown(e, Hit)
+    if hit then
+      local cf = e.classFile
+      out[#out + 1] = { name = e.name, short = Ambiguate(e.name, "short"), auto = e.auto,
+                        area = e.sub ~= "" and e.sub or e.zone, level = e.level, classFile = cf,
+                        class = cf and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[cf] or cf }
     end
   end
-  countsDirty = false
+  return out
 end
 
 function ns.OverviewCount(town)
@@ -190,7 +216,7 @@ local function QueueRefresh()
   refreshQueued = true
   C_Timer.After(0.5, function()
     refreshQueued = false
-    if ns.frame and ns.frame:IsShown() and ns.GetStage and ns.GetStage() == 1 and ns.RefreshMain then
+    if ns.frame and ns.frame:IsShown() and ns.RefreshMain then
       ns.RefreshMain()
     end
   end)
@@ -203,12 +229,18 @@ local lastAnnounce = 0
 
 local announcedKey   -- what this beacon last announced; nil while not announcing
 
-local function Announce()
+-- The announcement for the current place, or nil while the zone is unknown.
+local function Message()
   local zone = GetRealZoneText() or ""
-  if zone == "" then return false end
-  local sub = GetSubZoneText() or ""
-  local msg = "B" .. (ns.GetBeaconAutoInvite() and "1" or "0") .. "|" .. zone .. "|" .. sub
-  if not Send(msg) then return false end
+  if zone == "" then return nil end
+  local _, classFile = UnitClass("player")
+  return "B" .. (ns.GetBeaconAutoInvite() and "1" or "0") .. "|" .. zone .. "|" .. (GetSubZoneText() or "")
+    .. "|" .. (UnitLevel("player") or 0) .. "|" .. (classFile or "")
+end
+
+local function Announce()
+  local msg = Message()
+  if not msg or not Send(msg) then return false end
   announcedKey = msg
   lastAnnounce = GetTime()
   return true
@@ -218,9 +250,7 @@ end
 -- and withdraws when it stops being one.
 Reconcile = function()
   if ns.BeaconActive() then
-    local zone = GetRealZoneText() or ""
-    local msg = "B" .. (ns.GetBeaconAutoInvite() and "1" or "0") .. "|" .. zone .. "|" .. (GetSubZoneText() or "")
-    if msg ~= announcedKey then Announce() end
+    if Message() ~= announcedKey then Announce() end
   elseif announcedKey then
     if Send("X") or not ChannelId() then announcedKey = nil end
   end
@@ -282,14 +312,15 @@ rx:SetScript("OnEvent", function(_, _, prefix, text, channel, sender)
   else
     stats.gotB = stats.gotB + 1
     Dbg("announcement from " .. sender .. ": " .. text)
-    local auto, zone, sub = string.match(text, "^B([01])|([^|]*)|([^|]*)$")
+    local auto, zone, sub, level, classFile = string.match(text, "^B([01])|([^|]*)|([^|]*)|?(%d*)|?(%u*)$")
     if not zone then return end
     local key = Short(sender)
     if not store[key] then
       if nEntries >= MAX_ENTRIES then return end
       nEntries = nEntries + 1
     end
-    store[key] = { zone = zone, sub = sub, auto = auto == "1", t = GetTime() }
+    store[key] = { zone = zone, sub = sub, auto = auto == "1", t = GetTime(), name = sender,
+                   level = (tonumber(level) or 0) > 0 and tonumber(level) or nil, classFile = classFile ~= "" and classFile or nil }
     countsDirty = true
     QueueRefresh()
   end

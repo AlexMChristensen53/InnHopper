@@ -226,6 +226,19 @@ local function CollectPlayers(dest, wide)
     for name, d in pairs(c.data) do add(name, d.level, d.class, d.area, d.race, d.guild, d.classFile) end
   end
 
+  -- Available beacons come from the overview, not from the lists above.
+  for k, v in pairs(QT.beacons) do
+    if v.overview then QT.beacons[k] = nil end
+  end
+  local ob = ns.OverviewBeacons and ns.OverviewBeacons(dest)
+  if ob then
+    for i = 1, #ob do
+      local b = ob[i]
+      QT.beacons[string.lower(b.short)] = { auto = b.auto, overview = true }
+      add(b.name, b.level, b.class, b.area, nil, nil, b.classFile)
+    end
+  end
+
   table.sort(out, function(a, b) return string.lower(a.short) < string.lower(b.short) end)
   return out
 end

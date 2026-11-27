@@ -2,6 +2,13 @@
 
 Format based on [Keep a Changelog](https://keepachangelog.com). Versioning follows [Semantic Versioning](https://semver.org).
 
+## [1.2.1]
+### Fixed
+- Beacons that were not in the guild or friends list and not returned by `/who` were missing from the Beacons tab of a town. The tab now lists the beacons known from the beacon overview, so it always matches the count in the town list. Beacons appear and disappear while the list is open.
+
+### Changed
+- Beacon announcements include level and class, so beacons are listed with class colour and level.
+
 ## [1.2.0]
 ### Added
 - Beacon overview. The town list shows a Beacons column with the number of available beacons per town. Beacons announce themselves in a hidden channel, immediately when they become available and withdraw when they stop being available; viewers query every 10 seconds while the window is open. Always on; there is no setting for it.
@@ -12,7 +19,7 @@ Format based on [Keep a Changelog](https://keepachangelog.com). Versioning follo
 
 ### Changed
 - Town list uses the full window height (13 rows) and the tabs span the full width.
-- Warnings are shown lower on the screen in a separate message frame.
+- Warnings are shown in a separate message frame between the default error text and the screen centre.
 - Settings buttons use the button style of the selected theme.
 - Beacon options list "On" before "Off". Setup guide texts shortened: explanations under tick boxes, macro and theme intros removed.
 - The window is wider to fit the new columns.
